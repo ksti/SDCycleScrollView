@@ -34,6 +34,7 @@
  */
 
 #import <UIKit/UIKit.h>
+#import "SDCollectionViewCell.h"
 
 typedef enum {
     SDCycleScrollViewPageContolAlimentRight,
@@ -199,6 +200,12 @@ typedef enum {
 /** 滚动手势禁用（文字轮播较实用） */
 - (void)disableScrollGesture;
 
+@property (assign, nonatomic) BOOL zoomType;
+@property (assign, nonatomic) UIEdgeInsets imageViewInset;
+@property (assign, nonatomic) NSUInteger imageViewRadius;
+@property (assign, nonatomic) NSString *disableScrollEndType;
+
+@property (nonatomic, weak) UICollectionView *mainView; // 显示图片的collectionView
 
 //////////////////////  清除缓存API  //////////////////////
 

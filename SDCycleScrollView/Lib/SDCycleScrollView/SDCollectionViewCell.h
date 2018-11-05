@@ -32,6 +32,13 @@
 
 #import <UIKit/UIKit.h>
 
+#define MaxWidth 300
+#define MinWidth 250
+#define MaxHeight 200
+#define MinHeight 170
+#define Screen_Width [[UIScreen mainScreen] bounds].size.width
+#define Screen_Height [[UIScreen mainScreen] bounds].size.height
+
 @interface SDCollectionViewCell : UICollectionViewCell
 
 @property (weak, nonatomic) UIImageView *imageView;
@@ -47,5 +54,8 @@
 
 /** 只展示文字轮播 */
 @property (nonatomic, assign) BOOL onlyDisplayText;
+
+@property (assign, nonatomic) BOOL zoomType;
+@property (assign, nonatomic) UIEdgeInsets imageViewInset;
 
 @end

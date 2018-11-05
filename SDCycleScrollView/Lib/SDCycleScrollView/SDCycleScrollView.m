@@ -40,10 +40,9 @@
 
 NSString * const ID = @"SDCycleScrollViewCell";
 
-@interface SDCycleScrollView () <UICollectionViewDataSource, UICollectionViewDelegate>
+@interface SDCycleScrollView () <UICollectionViewDataSource, UICollectionViewDelegate, UICollectionViewDelegateFlowLayout, UIGestureRecognizerDelegate>
 
 
-@property (nonatomic, weak) UICollectionView *mainView; // 显示图片的collectionView
 @property (nonatomic, weak) UICollectionViewFlowLayout *flowLayout;
 @property (nonatomic, strong) NSArray *imagePathsGroup;
 @property (nonatomic, weak) NSTimer *timer;
@@ -51,6 +50,8 @@ NSString * const ID = @"SDCycleScrollViewCell";
 @property (nonatomic, weak) UIControl *pageControl;
 
 @property (nonatomic, strong) UIImageView *backgroundImageView; // 当imageURLs为空时的背景图
+
+@property (assign, nonatomic) CGFloat contentOffsetX;  // collectionView偏移量
 
 @end
 
@@ -68,6 +69,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
 - (void)awakeFromNib
 {
     [super awakeFromNib];
+    
     [self initialization];
     [self setupMainView];
 }
@@ -93,8 +95,18 @@ NSString * const ID = @"SDCycleScrollViewCell";
     _pageDotColor = [UIColor lightGrayColor];
     _bannerImageViewContentMode = UIViewContentModeScaleToFill;
     
-    self.backgroundColor = [UIColor lightGrayColor];
+    //self.backgroundColor = [UIColor lightGrayColor];
+    self.backgroundColor = [UIColor clearColor];
+    self.contentOffsetX = 0;
     
+    // 添加拖拽手势
+    UIPanGestureRecognizer *tap = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(doPan:)];
+    tap.delegate = self;
+    // 允许用户交互
+    self.userInteractionEnabled = YES;
+    
+    [self addGestureRecognizer:tap];
+
 }
 
 + (instancetype)cycleScrollViewWithFrame:(CGRect)frame imageNamesGroup:(NSArray *)imageNamesGroup
@@ -142,7 +154,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
     mainView.showsHorizontalScrollIndicator = NO;
     mainView.showsVerticalScrollIndicator = NO;
     [mainView registerClass:[SDCollectionViewCell class] forCellWithReuseIdentifier:ID];
-    
+
     mainView.dataSource = self;
     mainView.delegate = self;
     mainView.scrollsToTop = NO;
@@ -156,7 +168,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
 - (void)setDelegate:(id<SDCycleScrollViewDelegate>)delegate
 {
     _delegate = delegate;
-    
+
     if ([self.delegate respondsToSelector:@selector(customCollectionViewCellClassForCycleScrollView:)] && [self.delegate customCollectionViewCellClassForCycleScrollView:self]) {
         [self.mainView registerClass:[self.delegate customCollectionViewCellClassForCycleScrollView:self] forCellWithReuseIdentifier:ID];
     }else if ([self.delegate respondsToSelector:@selector(customCollectionViewCellNibForCycleScrollView:)] && [self.delegate customCollectionViewCellNibForCycleScrollView:self]) {
@@ -175,7 +187,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
         self.backgroundImageView = bgImageView;
     }
     
-    self.backgroundImageView.image = placeholderImage;
+    //self.backgroundImageView.image = placeholderImage;
 }
 
 - (void)setPageControlDotSize:(CGSize)pageControlDotSize
@@ -348,7 +360,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
         for (int i = 0; i < _titlesGroup.count; i++) {
             [temp addObject:@""];
         }
-        self.backgroundColor = [UIColor clearColor];
+        //self.backgroundColor = [UIColor clearColor];
         self.imageURLStringsGroup = [temp copy];
     }
 }
@@ -367,7 +379,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
 - (void)setupTimer
 {
     [self invalidateTimer]; // 创建定时器前先停止定时器，不然会出现僵尸定时器，导致轮播频率错误
-    
+
     NSTimer *timer = [NSTimer scheduledTimerWithTimeInterval:self.autoScrollTimeInterval target:self selector:@selector(automaticScroll) userInfo:nil repeats:YES];
     _timer = timer;
     [[NSRunLoop mainRunLoop] addTimer:timer forMode:NSRunLoopCommonModes];
@@ -395,6 +407,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
             TAPageControl *pageControl = [[TAPageControl alloc] init];
             pageControl.numberOfPages = self.imagePathsGroup.count;
             pageControl.dotColor = self.currentPageDotColor;
+            pageControl.normalColor = self.pageDotColor;
             pageControl.userInteractionEnabled = NO;
             pageControl.currentPage = indexOnPageControl;
             [self addSubview:pageControl];
@@ -439,14 +452,21 @@ NSString * const ID = @"SDCycleScrollViewCell";
 
 - (void)scrollToIndex:(int)targetIndex
 {
+    UICollectionViewScrollPosition scrollPosition;
+    if (self.scrollDirection == UICollectionViewScrollDirectionHorizontal) {
+        scrollPosition = UICollectionViewScrollPositionCenteredHorizontally;
+    } else {
+        scrollPosition = UICollectionViewScrollPositionCenteredVertically;
+    }
+    
     if (targetIndex >= _totalItemsCount) {
         if (self.infiniteLoop) {
             targetIndex = _totalItemsCount * 0.5;
-            [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:UICollectionViewScrollPositionNone animated:NO];
+            [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:scrollPosition animated:NO];
         }
         return;
     }
-    [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:UICollectionViewScrollPositionNone animated:YES];
+    [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:scrollPosition animated:YES];
 }
 
 - (int)currentIndex
@@ -477,7 +497,51 @@ NSString * const ID = @"SDCycleScrollViewCell";
 
 + (void)clearImagesCache
 {
-    [[[SDWebImageManager sharedManager] imageCache] clearDiskOnCompletion:nil];
+    [[[SDWebImageManager sharedManager] imageCache] clearDiskOnCompletion:^{}];
+}
+
+#pragma mark - 拖拽手势 UIGestureRecognizerDelegate
+
+// 后来不知道怎么回事，好像不需要额外的手势，就ok的￣□￣｜｜
+// 拖拽手势
+- (void)doPan:(UIPanGestureRecognizer *)panGesture{
+    CGPoint velocity = [panGesture velocityInView:self];
+    NSLog(@"velocity:(x, y)~~(%f, %f)", velocity.x, velocity.y);
+    if (self.disableScrollEndType) {
+        if (velocity.x > 0) {
+            // 向右滑动
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"left"]) {
+                self.mainView.userInteractionEnabled = YES;
+            }
+        } else {
+            // 向左滑动
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"right"]) {
+                self.mainView.userInteractionEnabled = YES;
+            }
+        }
+    }
+}
+-(BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldReceiveTouch:(UITouch *)touch {
+    if (self.mainView.userInteractionEnabled == NO) {
+        /*
+        CGPoint previousPoint = [touch previousLocationInView:self];
+        CGPoint point = [touch locationInView:self];
+        NSLog(@"previousPoint:(%f,%f)~~~point:(%f,%f)~~~", previousPoint.x, previousPoint.y, point.x, point.y);
+        if (previousPoint.x >= point.x) {
+            // 向左滑动
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"right"]) {
+                self.mainView.userInteractionEnabled = YES;
+            }
+        } else {
+            // 向右滑动
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"left"]) {
+                self.mainView.userInteractionEnabled = YES;
+            }
+        }
+        */
+        self.mainView.userInteractionEnabled = YES;
+    }
+    return NO;//关闭手势
 }
 
 #pragma mark - life circles
@@ -485,12 +549,13 @@ NSString * const ID = @"SDCycleScrollViewCell";
 - (void)layoutSubviews
 {
     self.delegate = self.delegate;
-    
+
     [super layoutSubviews];
     
     _flowLayout.itemSize = self.frame.size;
     
     _mainView.frame = self.bounds;
+
     if (_mainView.contentOffset.x == 0 &&  _totalItemsCount) {
         int targetIndex = 0;
         if (self.infiniteLoop) {
@@ -498,8 +563,18 @@ NSString * const ID = @"SDCycleScrollViewCell";
         }else{
             targetIndex = 0;
         }
-        [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:UICollectionViewScrollPositionNone animated:NO];
+        
+        UICollectionViewScrollPosition scrollPosition;
+        if (self.scrollDirection == UICollectionViewScrollDirectionHorizontal) {
+            scrollPosition = UICollectionViewScrollPositionCenteredHorizontally;
+        } else {
+            scrollPosition = UICollectionViewScrollPositionCenteredVertically;
+        }
+        
+        [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:scrollPosition animated:NO];
     }
+    
+    self.contentOffsetX = self.mainView.contentOffset.x;
     
     CGSize size = CGSizeZero;
     if ([self.pageControl isKindOfClass:[TAPageControl class]]) {
@@ -554,7 +629,14 @@ NSString * const ID = @"SDCycleScrollViewCell";
 {
     long targetIndex = [self currentIndex];
     if (targetIndex < _totalItemsCount) {
-        [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:UICollectionViewScrollPositionNone animated:NO];
+        UICollectionViewScrollPosition scrollPosition;
+        if (self.scrollDirection == UICollectionViewScrollDirectionHorizontal) {
+            scrollPosition = UICollectionViewScrollPositionCenteredHorizontally;
+        } else {
+            scrollPosition = UICollectionViewScrollPositionCenteredVertically;
+        }
+        
+        [_mainView scrollToItemAtIndexPath:[NSIndexPath indexPathForItem:targetIndex inSection:0] atScrollPosition:scrollPosition animated:YES];
     }
 }
 
@@ -581,7 +663,7 @@ NSString * const ID = @"SDCycleScrollViewCell";
         [self.delegate setupCustomCell:cell forIndex:itemIndex cycleScrollView:self];
         return cell;
     }
-    
+
     NSString *imagePath = self.imagePathsGroup[itemIndex];
     
     if (!self.onlyDisplayText && [imagePath isKindOfClass:[NSString class]]) {
@@ -612,7 +694,22 @@ NSString * const ID = @"SDCycleScrollViewCell";
         cell.imageView.contentMode = self.bannerImageViewContentMode;
         cell.clipsToBounds = YES;
         cell.onlyDisplayText = self.onlyDisplayText;
+        cell.zoomType = self.zoomType;
     }
+    
+    if (self.zoomType) {
+        if ([self currentIndex] == indexPath.item) {
+            cell.imageView.frame = CGRectMake(0, 0, MaxWidth, MaxHeight);
+        } else {
+            cell.imageView.frame = CGRectMake(0, 0, MinWidth, MinHeight);
+        }
+        
+        cell.imageView.center = cell.contentView.center;
+    }
+    if (self.imageViewRadius) {
+        cell.imageView.layer.cornerRadius = self.imageViewRadius;
+    }
+    cell.imageViewInset = self.imageViewInset;
     
     return cell;
 }
@@ -636,12 +733,64 @@ NSString * const ID = @"SDCycleScrollViewCell";
     int itemIndex = [self currentIndex];
     int indexOnPageControl = [self pageControlIndexWithCurrentCellIndex:itemIndex];
     
+    if (self.disableScrollEndType) {
+        if (self.mainView.contentOffset.x > 0) {
+            // 如果到最后一张了，禁止交互，再用别的手势判断运动趋势
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"right"]) {
+                self.mainView.userInteractionEnabled = itemIndex != self.totalItemsCount-1;
+            }
+        } else {
+            // 已经到第一张了，还在向右滚动
+            if ([self.disableScrollEndType.lowercaseString isEqualToString:@"left"]) {
+                self.mainView.userInteractionEnabled = itemIndex != 0;
+            }
+        }
+    }
+    
     if ([self.pageControl isKindOfClass:[TAPageControl class]]) {
         TAPageControl *pageControl = (TAPageControl *)_pageControl;
         pageControl.currentPage = indexOnPageControl;
     } else {
         UIPageControl *pageControl = (UIPageControl *)_pageControl;
         pageControl.currentPage = indexOnPageControl;
+    }
+    
+    // 图片缩放
+    if (self.zoomType) {
+        SDCollectionViewCell *lastCell = (SDCollectionViewCell *)[self.mainView cellForItemAtIndexPath:[NSIndexPath indexPathForItem:itemIndex - 1 inSection:0]];
+        SDCollectionViewCell *currentCell = (SDCollectionViewCell *)[self.mainView cellForItemAtIndexPath:[NSIndexPath indexPathForItem:itemIndex inSection:0]];
+        SDCollectionViewCell *nextCell = (SDCollectionViewCell *)[self.mainView cellForItemAtIndexPath:[NSIndexPath indexPathForItem:itemIndex + 1 inSection:0]];
+        
+        // 当前cell的偏移比例
+        CGFloat scale = (fabs(self.flowLayout.itemSize.width * itemIndex - (self.mainView.contentOffset.x + (Screen_Width - self.flowLayout.itemSize.width)/2)))/self.flowLayout.itemSize.width;
+        
+        currentCell.imageView.frame = CGRectMake(0, 0, MaxWidth - scale * (MaxWidth - MinWidth), MaxHeight - scale * (MaxHeight - MinHeight));
+
+        if (self.mainView.contentOffset.x > self.contentOffsetX) {
+            // 向左滚动
+            if (self.flowLayout.itemSize.width * itemIndex < self.mainView.contentOffset.x + (Screen_Width - self.flowLayout.itemSize.width)/2) {
+                // 当前页图片缩小，下一页图片放大
+                nextCell.imageView.frame = CGRectMake(0, 0, MinWidth + scale * (MaxWidth - MinWidth), MinHeight + scale * (MaxHeight - MinHeight));
+            } else {
+                // 当前页图片放大，前一页图片缩小
+                lastCell.imageView.frame = CGRectMake(0, 0, MaxWidth - (1 - scale) * (MaxWidth - MinWidth), MaxHeight - (1 - scale) * (MaxHeight - MinHeight));
+            }
+        } else {
+            // 向右滚动
+            if (self.flowLayout.itemSize.width * itemIndex < self.mainView.contentOffset.x + (Screen_Width - self.flowLayout.itemSize.width)/2) {
+                // 当前页图片放大，下一页图片缩小
+                nextCell.imageView.frame = CGRectMake(0, 0, MinWidth + scale * (MaxWidth - MinWidth), MinHeight + scale * (MaxHeight - MinHeight));
+            } else {
+                // 当前页图片缩小，前一页图片放大
+                lastCell.imageView.frame = CGRectMake(0, 0, MaxWidth - (1 - scale) * (MaxWidth - MinWidth), MaxHeight - (1 - scale) * (MaxHeight - MinHeight));
+            }
+        }
+        
+        currentCell.imageView.center = currentCell.contentView.center;
+        nextCell.imageView.center = nextCell.contentView.center;
+        lastCell.imageView.center = lastCell.contentView.center;
+        
+        self.contentOffsetX = self.mainView.contentOffset.x;
     }
 }
 
@@ -654,6 +803,13 @@ NSString * const ID = @"SDCycleScrollViewCell";
 
 - (void)scrollViewDidEndDragging:(UIScrollView *)scrollView willDecelerate:(BOOL)decelerate
 {
+    if (self.zoomType) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            int index = [self currentIndex];
+            [self scrollToIndex:index];
+        });
+    }
+    
     if (self.autoScroll) {
         [self setupTimer];
     }
@@ -666,6 +822,8 @@ NSString * const ID = @"SDCycleScrollViewCell";
 
 - (void)scrollViewDidEndScrollingAnimation:(UIScrollView *)scrollView
 {
+    self.contentOffsetX = self.mainView.contentOffset.x;
+    
     if (!self.imagePathsGroup.count) return; // 解决清除timer时偶尔会出现的问题
     int itemIndex = [self currentIndex];
     int indexOnPageControl = [self pageControlIndexWithCurrentCellIndex:itemIndex];
@@ -682,9 +840,9 @@ NSString * const ID = @"SDCycleScrollViewCell";
         [self invalidateTimer];
     }
     if (0 == _totalItemsCount) return;
-    
+
     [self scrollToIndex:(int)(_totalItemsCount * 0.5 + index)];
-    
+
     if (self.autoScroll) {
         [self setupTimer];
     }
